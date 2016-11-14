@@ -94,7 +94,7 @@ verify_config() {
 load_config() {
   # Check for config in various locations
   if [[ -z "${CONFIG:-}" ]]; then
-    for check_config in "/etc/dehydrated" "/usr/local/etc/dehydrated" "${PWD}" "${SCRIPTDIR}"; do
+    for check_config in "${PWD}" "${SCRIPTDIR}" "/etc/dehydrated" "/usr/local/etc/dehydrated"; do
       if [[ -f "${check_config}/config" ]]; then
         BASEDIR="${check_config}"
         CONFIG="${check_config}/config"
@@ -492,7 +492,7 @@ sign_csr() {
     keyauths[${idx}]="${keyauth}"
     challenge_tokens[${idx}]="${challenge_token}"
     # Note: assumes args will never have spaces!
-    deploy_args[${idx}]="${altname} ${challenge_token} ${keyauth_hook}"
+    deploy_args[${idx}]="${altname} ${challenge_token} ${keyauth_hook} ${CONTACT_EMAIL}"
     idx=$((idx+1))
   done
 
@@ -662,7 +662,7 @@ sign_domain() {
 
   # Wait for hook script to clean the challenge and to deploy cert if used
   export KEY_ALGO
-  [[ -n "${HOOK}" ]] && "${HOOK}" "deploy_cert" "${domain}" "${CERTDIR}/${domain}/privkey.pem" "${CERTDIR}/${domain}/cert.pem" "${CERTDIR}/${domain}/fullchain.pem" "${CERTDIR}/${domain}/chain.pem" "${timestamp}"
+  [[ -n "${HOOK}" ]] && "${HOOK}" "deploy_cert" "${domain}" "${CERTDIR}/${domain}/privkey.pem" "${CERTDIR}/${domain}/cert.pem" "${CERTDIR}/${domain}/fullchain.pem" "${CERTDIR}/${domain}/chain.pem" "${timestamp}" "${CONTACT_EMAIL}"
 
   unset challenge_token
   echo " + Done!"
@@ -772,7 +772,7 @@ command_sign_domains() {
         else
           # Certificate-Names unchanged and cert is still valid
           echo "Skipping renew!"
-          [[ -n "${HOOK}" ]] && "${HOOK}" "unchanged_cert" "${domain}" "${CERTDIR}/${domain}/privkey.pem" "${CERTDIR}/${domain}/cert.pem" "${CERTDIR}/${domain}/fullchain.pem" "${CERTDIR}/${domain}/chain.pem"
+          [[ -n "${HOOK}" ]] && "${HOOK}" "unchanged_cert" "${domain}" "${CERTDIR}/${domain}/privkey.pem" "${CERTDIR}/${domain}/cert.pem" "${CERTDIR}/${domain}/fullchain.pem" "${CERTDIR}/${domain}/chain.pem" "${CONTACT_EMAIL}"
           continue
         fi
       else
