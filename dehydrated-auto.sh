@@ -39,15 +39,15 @@ else
 fi
 
 # Ensure proper permissions
-find $SCRIPTDIR -type d -exec chmod 755 {} \;
-find $SCRIPTDIR -name 'cert-*pem' -exec chmod 444 {} \;
-find $SCRIPTDIR -name 'chain-*pem' -exec chmod 444 {} \;
-find $SCRIPTDIR -name 'fullchain-*pem' -exec chmod 444 {} \;
-find $SCRIPTDIR -name 'cert-*csr' -exec chmod 400 {} \;
-find $SCRIPTDIR -name 'privkey-*pem' -exec chmod 400 {} \;
+find -L $SCRIPTDIR -type d -exec chmod 755 {} \;
+find -L $SCRIPTDIR -name 'cert-*pem' -exec chmod 444 {} \;
+find -L $SCRIPTDIR -name 'chain-*pem' -exec chmod 444 {} \;
+find -L $SCRIPTDIR -name 'fullchain-*pem' -exec chmod 444 {} \;
+find -L $SCRIPTDIR -name 'cert-*csr' -exec chmod 400 {} \;
+find -L $SCRIPTDIR -name 'privkey-*pem' -exec chmod 400 {} \;
 
 # Archive old certificates
 $SCRIPTDIR/dehydrated -gc;
 
 # Delete really old certficates
-find $SCRIPTDIR/ -mtime 365 -type f -exec rm -f {} \;
+find -L $SCRIPTDIR/ -mtime 365 -type f -exec rm -f {} \;
