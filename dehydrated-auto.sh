@@ -17,7 +17,7 @@ umask 0277
 
 # Only allow 1 execution at a time in case a long running process is waiting for manual dns-01 validation
 SCRIPT=$(basename "$0")
-RUNNING=$(pgrep -fl "$SCRIPT" | wc -l)
+RUNNING=$(pgrep -fl "$SCRIPT" | grep -v sudo | wc -l )
 if [ $RUNNING -gt 2 ]; then
     echo "$SCRIPT is already running... Exiting..."
     exit
