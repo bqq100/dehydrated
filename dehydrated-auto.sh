@@ -10,7 +10,18 @@ while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symli
 done
 SCRIPTDIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
 
-cd $SCRIPTDIR
+CERTDIR=""
+if [ -e $SCRIPTDIR/dehydrated ]; then
+    cd $SCRIPTDIR
+    CERTDIR=$($SCRIPTDIR/dehydrated -e | grep -o 'CERTDIR.*' | sed 's/"//g;s/CERTDIR=//')
+    if [ "$CERTDIR" = "" ] || [ ! -e $CERTDIR ]; then
+        echo "Certificate directory was not found correctly.... Exiting"
+        exit
+    fi
+else
+    echo "Script directory was not found correctly.... Exiting"
+    exit
+fi
 
 # Err on the side of caution to make sure private keys are only readable to owner
 umask 0277
@@ -40,14 +51,16 @@ fi
 
 # Ensure proper permissions
 find -L $SCRIPTDIR -type d -exec chmod 755 {} \;
-find -L $SCRIPTDIR -name 'cert-*pem' -exec chmod 444 {} \;
-find -L $SCRIPTDIR -name 'chain-*pem' -exec chmod 444 {} \;
-find -L $SCRIPTDIR -name 'fullchain-*pem' -exec chmod 444 {} \;
-find -L $SCRIPTDIR -name 'cert-*csr' -exec chmod 400 {} \;
-find -L $SCRIPTDIR -name 'privkey-*pem' -exec chmod 400 {} \;
+find -L $CERTDIR -type d -exec chmod 755 {} \;
+find -L $CERTDIR -name 'cert-*pem' -exec chmod 444 {} \;
+find -L $CERTDIR -name 'chain-*pem' -exec chmod 444 {} \;
+find -L $CERTDIR -name 'fullchain-*pem' -exec chmod 444 {} \;
+find -L $CERTDIR -name 'cert-*csr' -exec chmod 400 {} \;
+find -L $CERTDIR -name 'privkey-*pem' -exec chmod 400 {} \;
 
 # Archive old certificates
 $SCRIPTDIR/dehydrated -gc;
 
 # Delete really old certficates
-find -L $SCRIPTDIR/ -mtime 365 -type f -exec rm -f {} \;
+find -L $SCRIPTDIR/archive -name '*.pem' -mtime 365 -type f -exec rm -f {} \;
+find -L $SCRIPTDIR/archive -name '*.csr' -mtime 365 -type f -exec rm -f {} \;
