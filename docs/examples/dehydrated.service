@@ -1,0 +1,12 @@
+[Unit]
+Description=Dehydrated service for automatically renewing SSL certificates
+After=syslog.target network.target
+
+[Service]
+Type=simple
+ExecStart=/etc/dehydrated/dehydrated-auto.sh --daemon
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target
