@@ -464,6 +464,7 @@ sign_csr() {
 
     challenges="$(printf '%s\n' "${response}" | sed -n 's/.*\("challenges":[^\[]*\[[^]]*]\).*/\1/p')"
     repl=$'\n''{' # fix syntax highlighting in Vim
+    valid_challenge="$(printf "%s" "${challenges//\{/${repl}}" | grep \""valid"\")"
     challenge="$(printf "%s" "${challenges//\{/${repl}}" | grep \""${CHALLENGETYPE}"\")"
     challenge_token="$(printf '%s' "${challenge}" | get_json_string_value token | _sed 's/[^A-Za-z0-9_\-]/_/g')"
     challenge_uri="$(printf '%s' "${challenge}" | get_json_string_value uri)"
@@ -520,6 +521,11 @@ sign_csr() {
       sleep 1
       result="$(http_request get "${challenge_uris[${idx}]}")"
       reqstatus="$(printf '%s\n' "${result}" | get_json_string_value status)"
+      if [[ "${reqstatus}" = "pending" ]]; then
+         if [[ "${valid_challenge}" == *"valid"* ]]; then
+            reqstatus="valid"
+         fi
+      fi
     done
 
     [[ "${CHALLENGETYPE}" = "http-01" ]] && rm -f "${WELLKNOWN}/${challenge_token}"
