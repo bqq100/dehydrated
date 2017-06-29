@@ -464,7 +464,10 @@ sign_csr() {
 
     challenges="$(printf '%s\n' "${response}" | sed -n 's/.*\("challenges":[^\[]*\[[^]]*]\).*/\1/p')"
     repl=$'\n''{' # fix syntax highlighting in Vim
-    valid_challenge="$(printf "%s" "${challenges//\{/${repl}}" | grep \""valid"\")"
+    valid_challenge="pending"
+    if [[ "${challenges}" == *"valid"* ]]; then
+        valid_challenge="valid"
+    fi
     challenge="$(printf "%s" "${challenges//\{/${repl}}" | grep \""${CHALLENGETYPE}"\")"
     challenge_token="$(printf '%s' "${challenge}" | get_json_string_value token | _sed 's/[^A-Za-z0-9_\-]/_/g')"
     challenge_uri="$(printf '%s' "${challenge}" | get_json_string_value uri)"
