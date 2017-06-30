@@ -450,10 +450,11 @@ sign_csr() {
   fi
 
   local idx=0
+  local idy=0
   if [[ -n "${ZSH_VERSION:-}" ]]; then
-    local -A challenge_uris challenge_tokens keyauths deploy_args
+    local -A challenge_uris challenge_tokens keyauths deploy_args pre_valid_challenge
   else
-    local -a challenge_uris challenge_tokens keyauths deploy_args
+    local -a challenge_uris challenge_tokens keyauths deploy_args pre_valid_challenge
   fi
 
   # Request challenges
@@ -464,10 +465,11 @@ sign_csr() {
 
     challenges="$(printf '%s\n' "${response}" | sed -n 's/.*\("challenges":[^\[]*\[[^]]*]\).*/\1/p')"
     repl=$'\n''{' # fix syntax highlighting in Vim
-    valid_challenge="pending"
-    if [[ "${challenges}" == *"valid"* ]]; then
-        valid_challenge="valid"
-        break
+    pre_valid_challenge[${idy}]="no"
+    if [[ "${challenges}" = *"valid"* ]]; then
+      pre_valid_challenge[${idy}]="yes"
+      idy=$((idy+1))
+      continue
     fi
     challenge="$(printf "%s" "${challenges//\{/${repl}}" | grep \""${CHALLENGETYPE}"\")"
     challenge_token="$(printf '%s' "${challenge}" | get_json_string_value token | _sed 's/[^A-Za-z0-9_\-]/_/g')"
@@ -499,15 +501,23 @@ sign_csr() {
     # Note: assumes args will never have spaces!
     deploy_args[${idx}]="${altname} ${challenge_token} ${keyauth_hook} ${CONTACT_EMAIL}"
     idx=$((idx+1))
+    idy=$((idy+1))
   done
 
   # Wait for hook script to deploy the challenges if used
   # shellcheck disable=SC2068
-  [[ -n "${HOOK}" ]] && [[ "${HOOK_CHAIN}" = "yes" ]] && "${HOOK}" "deploy_challenge" ${deploy_args[@]}
+  [[ ${idx} > 0 ]] && [[ -n "${HOOK}" ]] && [[ "${HOOK_CHAIN}" = "yes" ]] && "${HOOK}" "deploy_challenge" ${deploy_args[@]}
 
   # Respond to challenges
   idx=0
+  idy=0
   for altname in ${altnames}; do
+    if [[ "${pre_valid_challenge[${idy}]}" = *"yes"* ]]; then
+      reqstatus="valid"
+      echo " + Challenge is pre-validated!"
+      idy=$((idy+1))
+      continue
+    fi
     challenge_token="${challenge_tokens[${idx}]}"
     keyauth="${keyauths[${idx}]}"
 
@@ -525,11 +535,6 @@ sign_csr() {
       sleep 1
       result="$(http_request get "${challenge_uris[${idx}]}")"
       reqstatus="$(printf '%s\n' "${result}" | get_json_string_value status)"
-      if [[ "${reqstatus}" = "pending" ]]; then
-         if [[ "${valid_challenge}" == *"valid"* ]]; then
-            reqstatus="valid"
-         fi
-      fi
     done
 
     [[ "${CHALLENGETYPE}" = "http-01" ]] && rm -f "${WELLKNOWN}/${challenge_token}"
@@ -540,6 +545,7 @@ sign_csr() {
       "${HOOK}" "clean_challenge" ${deploy_args[${idx}]}
     fi
     idx=$((idx+1))
+    idy=$((idy+1))
 
     if [[ "${reqstatus}" = "valid" ]]; then
       echo " + Challenge is valid!"
@@ -550,7 +556,7 @@ sign_csr() {
 
   # Wait for hook script to clean the challenges if used
   # shellcheck disable=SC2068
-  [[ -n "${HOOK}" ]] && [[ "${HOOK_CHAIN}" = "yes" ]] && "${HOOK}" "clean_challenge" ${deploy_args[@]}
+  [[ ${idx} > 0 ]] && [[ -n "${HOOK}" ]] && [[ "${HOOK_CHAIN}" = "yes" ]] && "${HOOK}" "clean_challenge" ${deploy_args[@]}
 
   if [[ "${reqstatus}" != "valid" ]]; then
     # Clean up any remaining challenge_tokens if we stopped early
