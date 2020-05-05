@@ -59,6 +59,9 @@ store_configvars() {
   __OPENSSL_CNF="${OPENSSL_CNF}"
   __RENEW_DAYS="${RENEW_DAYS}"
   __IP_VERSION="${IP_VERSION}"
+  __PFX="${PFX}"
+  __PFX_PWD="${PFX_PWD}"
+  __PFX_CHAIN="${PFX_CHAIN}"
 }
 
 reset_configvars() {
@@ -73,6 +76,9 @@ reset_configvars() {
   OPENSSL_CNF="${__OPENSSL_CNF}"
   RENEW_DAYS="${__RENEW_DAYS}"
   IP_VERSION="${__IP_VERSION}"
+  PFX="${__PFX}"
+  PFX_PWD="${__PFX_PWD}"
+  PFX_CHAIN="${__PFX_CHAIN}"
 }
 
 # verify configuration values
@@ -125,6 +131,9 @@ load_config() {
   LOCKFILE=
   OCSP_MUST_STAPLE="no"
   IP_VERSION=
+  PFX="no"
+  PFX_PWD="yes"
+  PFX_CHAIN="no"
 
   if [[ -z "${CONFIG:-}" ]]; then
     echo "#" >&2
@@ -192,6 +201,9 @@ load_config() {
   [[ -n "${PARAM_KEY_ALGO:-}" ]] && KEY_ALGO="${PARAM_KEY_ALGO}"
   [[ -n "${PARAM_OCSP_MUST_STAPLE:-}" ]] && OCSP_MUST_STAPLE="${PARAM_OCSP_MUST_STAPLE}"
   [[ -n "${PARAM_IP_VERSION:-}" ]] && IP_VERSION="${PARAM_IP_VERSION}"
+  [[ -n "${PARAM_PFX:-}" ]] && PFX="${PARAM_PFX}"
+  [[ -n "${PARAM_PFX_PWD:-}" ]] && PFX_PWD="${PARAM_PFX_PWD}"
+  [[ -n "${PARAM_PFX_CHAIN:-}" ]] && PFX_CHAIN="${PARAM_PFX_CHAIN}"
 
   verify_config
   store_configvars
@@ -634,6 +646,8 @@ sign_domain() {
     rm -f "${CERTDIR}/${domain}/privkey.roll.pem"
   fi
 
+  chmod 400 "${CERTDIR}/${domain}/${privkey}"
+
   # Generate signing request config and the actual signing request
   echo " + Generating signing request..."
   SAN=""
@@ -668,6 +682,26 @@ sign_domain() {
   fi
   cat "${CERTDIR}/${domain}/chain-${timestamp}.pem" >> "${CERTDIR}/${domain}/fullchain-${timestamp}.pem"
 
+  # Create cert.pfx and cert.pwd
+  if [[ ${PFX} = "yes" ]]
+  then
+    if [[ ${PFX_PWD} = "yes" ]]
+    then
+      pass=$(dd if=/dev/urandom bs=12 count=1 2>/dev/null | base64 -w 0)
+      $(echo "${pass}" | base64 -w 0 > "${CERTDIR}/${domain}/cert-${timestamp}.pwd")
+      chmod 400 "${CERTDIR}/${domain}/cert-${timestamp}.pwd"
+      pass="pass:"${pass}
+    else
+      pass="pass:"
+    fi
+    if [[ ${PFX_CHAIN} = "yes" ]]
+    then
+      openssl pkcs12 -export -out "${CERTDIR}/${domain}/cert-${timestamp}.pfx" -name "$domain Certificate" -inkey "${CERTDIR}/${domain}/${privkey}" -in "${CERTDIR}/${domain}/cert-${timestamp}.pem" -passout "${pass}" -certfile "${CERTDIR}/${domain}/chain-${timestamp}.pem"
+    else
+      openssl pkcs12 -export -out "${CERTDIR}/${domain}/cert-${timestamp}.pfx" -name "$domain Certificate" -inkey "${CERTDIR}/${domain}/${privkey}" -in "${CERTDIR}/${domain}/cert-${timestamp}.pem" -passout "${pass}"
+    fi
+  fi
+
   # Update symlinks
   [[ "${privkey}" = "privkey.pem" ]] || ln -sf "privkey-${timestamp}.pem" "${CERTDIR}/${domain}/privkey.pem"
 
@@ -676,9 +710,29 @@ sign_domain() {
   ln -sf "cert-${timestamp}.csr" "${CERTDIR}/${domain}/cert.csr"
   ln -sf "cert-${timestamp}.pem" "${CERTDIR}/${domain}/cert.pem"
 
+  if [[ ${PFX} = "yes" ]]
+  then
+    ln -sf "cert-${timestamp}.pfx" "${CERTDIR}/${domain}/cert.pfx"
+    if [[ ${PFX_PWD} = "yes" ]]
+    then
+      ln -sf "cert-${timestamp}.pwd" "${CERTDIR}/${domain}/cert.pwd"
+    fi
+  fi
+
   # Wait for hook script to clean the challenge and to deploy cert if used
   export KEY_ALGO
-  [[ -n "${HOOK}" ]] && "${HOOK}" "deploy_cert" "${domain}" "${CERTDIR}/${domain}/privkey.pem" "${CERTDIR}/${domain}/cert.pem" "${CERTDIR}/${domain}/fullchain.pem" "${CERTDIR}/${domain}/chain.pem" "${timestamp}" "${CONTACT_EMAIL}"
+
+  if [[ ${PFX} = "yes" ]]
+  then
+    if [[ ${PFX_PWD} = "yes" ]]
+    then
+      [[ -n "${HOOK}" ]] && "${HOOK}" "deploy_cert" "${domain}" "${CERTDIR}/${domain}/cert.pwd" "${CERTDIR}/${domain}/cert.pfx" "${CERTDIR}/${domain}/fullchain.pem" "${CERTDIR}/${domain}/chain.pem" "${timestamp}" "${CONTACT_EMAIL}"
+    else
+      [[ -n "${HOOK}" ]] && "${HOOK}" "deploy_cert" "${domain}" "" "${CERTDIR}/${domain}/cert.pfx" "${CERTDIR}/${domain}/fullchain.pem" "${CERTDIR}/${domain}/chain.pem" "${timestamp}" "${CONTACT_EMAIL}"
+    fi
+  else
+    [[ -n "${HOOK}" ]] && "${HOOK}" "deploy_cert" "${domain}" "${CERTDIR}/${domain}/privkey.pem" "${CERTDIR}/${domain}/cert.pem" "${CERTDIR}/${domain}/fullchain.pem" "${CERTDIR}/${domain}/chain.pem" "${timestamp}" "${CONTACT_EMAIL}"
+  fi
 
   unset challenge_token
   echo " + Done!"
@@ -746,7 +800,7 @@ command_sign_domains() {
         config_var="$(echo "${cfgline:1}" | cut -d'=' -f1)"
         config_value="$(echo "${cfgline:1}" | cut -d'=' -f2-)"
         case "${config_var}" in
-          KEY_ALGO|OCSP_MUST_STAPLE|PRIVATE_KEY_RENEW|PRIVATE_KEY_ROLLOVER|KEYSIZE|CHALLENGETYPE|HOOK|WELLKNOWN|HOOK_CHAIN|OPENSSL_CNF|RENEW_DAYS)
+          KEY_ALGO|OCSP_MUST_STAPLE|PRIVATE_KEY_RENEW|PRIVATE_KEY_ROLLOVER|KEYSIZE|CHALLENGETYPE|HOOK|WELLKNOWN|HOOK_CHAIN|OPENSSL_CNF|RENEW_DAYS|PFX|PFX_PWD|PFX_CHAIN)
             echo "   + ${config_var} = ${config_value}"
             declare -- "${config_var}=${config_value}"
             ;;
@@ -788,7 +842,17 @@ command_sign_domains() {
         else
           # Certificate-Names unchanged and cert is still valid
           echo "Skipping renew!"
-          [[ -n "${HOOK}" ]] && "${HOOK}" "unchanged_cert" "${domain}" "${CERTDIR}/${domain}/privkey.pem" "${CERTDIR}/${domain}/cert.pem" "${CERTDIR}/${domain}/fullchain.pem" "${CERTDIR}/${domain}/chain.pem" "${CONTACT_EMAIL}"
+          if [[ ${PFX} = "yes" ]]
+          then
+            if [[ ${PFX_PWD} = "yes" ]]
+            then
+              [[ -n "${HOOK}" ]] && "${HOOK}" "unchanged_cert" "${domain}" "${CERTDIR}/${domain}/cert.pwd" "${CERTDIR}/${domain}/cert.pfx" "${CERTDIR}/${domain}/fullchain.pem" "${CERTDIR}/${domain}/chain.pem" "${CONTACT_EMAIL}"
+            else
+              [[ -n "${HOOK}" ]] && "${HOOK}" "unchanged_cert" "${domain}" "" "${CERTDIR}/${domain}/cert.pfx" "${CERTDIR}/${domain}/fullchain.pem" "${CERTDIR}/${domain}/chain.pem" "${CONTACT_EMAIL}"
+          fi
+          else
+            [[ -n "${HOOK}" ]] && "${HOOK}" "unchanged_cert" "${domain}" "${CERTDIR}/${domain}/privkey.pem" "${CERTDIR}/${domain}/cert.pem" "${CERTDIR}/${domain}/fullchain.pem" "${CERTDIR}/${domain}/chain.pem" "${CONTACT_EMAIL}"
+          fi
           continue
         fi
       else
@@ -915,7 +979,7 @@ command_cleanup() {
     fi
 
     # Loop over file-types (certificates, keys, signing-requests, ...)
-    for filetype in cert.csr cert.pem chain.pem fullchain.pem privkey.pem; do
+    for filetype in cert.csr cert.pem chain.pem fullchain.pem privkey.pem cert.pfx cert.pwd; do
       # Skip if symlink is broken
       [[ -r "${certdir}/${filetype}" ]] || continue
 
@@ -970,7 +1034,7 @@ command_help() {
 command_env() {
   echo "# dehydrated configuration"
   load_config
-  typeset -p CA LICENSE CERTDIR CHALLENGETYPE DOMAINS_D DOMAINS_TXT HOOK HOOK_CHAIN RENEW_DAYS ACCOUNT_KEY ACCOUNT_KEY_JSON KEYSIZE WELLKNOWN PRIVATE_KEY_RENEW OPENSSL_CNF CONTACT_EMAIL LOCKFILE
+  typeset -p CA LICENSE CERTDIR CHALLENGETYPE DOMAINS_D DOMAINS_TXT HOOK HOOK_CHAIN RENEW_DAYS ACCOUNT_KEY ACCOUNT_KEY_JSON KEYSIZE WELLKNOWN PRIVATE_KEY_RENEW OPENSSL_CNF CONTACT_EMAIL LOCKFILE PFX PFX_PWD PFX_CHAIN
 }
 
 # Main method (parses script arguments and calls command_* methods)
@@ -1079,6 +1143,25 @@ main() {
       # PARAM_Description: Sets option in CSR indicating OCSP stapling to be mandatory
       --ocsp)
         PARAM_OCSP_MUST_STAPLE="yes"
+        ;;
+
+      # PARAM_Usage: --pfx
+      # PARAM_Description: Generate and deploy a secure PFX certificate (password is stored BASE64 encoded in a pwd file)
+      --pfx)
+        PARAM_PFX="yes"
+        ;;
+
+      # PARAM_Usage: --insecure_pfx
+      # PARAM_Description: Generate and deploy an insecure PFX certificate
+      --insecure_pfx)
+        PARAM_PFX_PWD="no"
+        PARAM_PFX="yes"
+        ;;
+
+      # PARAM_Usage: --chain_pfx
+      # PARAM_Description: Add intermediate cert to the PFX certificate (requires --pfx or --insecure_pfx)
+      --chain_pfx)
+        PARAM_PFX_CHAIN="yes"
         ;;
 
       # PARAM_Usage: --privkey (-p) path/to/key.pem

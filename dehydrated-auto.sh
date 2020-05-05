@@ -58,6 +58,8 @@ function execute {
     find -L $CERTDIR -name 'fullchain-*pem' -exec chmod 444 {} \;
     find -L $CERTDIR -name 'cert-*csr' -exec chmod 400 {} \;
     find -L $CERTDIR -name 'privkey-*pem' -exec chmod 400 {} \;
+    find -L $CERTDIR -name 'cert-*pfx' -exec chmod 440 {} \;
+    find -L $CERTDIR -name 'cert-*pwd' -exec chmod 400 {} \;
 
     # Archive old certificates
     $SCRIPTDIR/dehydrated -gc;
@@ -65,6 +67,8 @@ function execute {
     # Delete really old certficates
     find -L $SCRIPTDIR/archive -name '*.pem' -mtime 365 -type f -exec rm -f {} \;
     find -L $SCRIPTDIR/archive -name '*.csr' -mtime 365 -type f -exec rm -f {} \;
+    find -L $SCRIPTDIR/archive -name '*.pfx' -mtime 365 -type f -exec rm -f {} \;
+    find -L $SCRIPTDIR/archive -name '*.pwd' -mtime 365 -type f -exec rm -f {} \;
 }
 
 # Should we daemonize?

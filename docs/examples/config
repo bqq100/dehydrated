@@ -86,3 +86,12 @@
 
 # Option to add CSR-flag indicating OCSP stapling to be mandatory (default: no)
 #OCSP_MUST_STAPLE="no"
+
+# Option to enable creation and deployment of a PFX certificate (default: no)
+# PFX="no"
+
+# Option to password protect the generated PFX file.  The password will be BASE64 encoded and stored in cert.pwd file (default: yes)
+# PFX_PWD="yes"
+
+# Option to include the intermediate certificate in the PFX file (default: no)
+# PFX_CHAIN="no"
