@@ -13,7 +13,7 @@ SCRIPTDIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
 CERTDIR=""
 if [ -e $SCRIPTDIR/dehydrated ]; then
     cd $SCRIPTDIR
-    CERTDIR=$($SCRIPTDIR/dehydrated -e | grep -o 'CERTDIR.*' | sed 's/"//g;s/CERTDIR=//')
+    CERTDIR=$($SCRIPTDIR/dehydrated -e | grep -o '\sCERTDIR.*' | sed 's/"//g;s/\sCERTDIR=//')
     if [ "$CERTDIR" = "" ] || [ ! -e $CERTDIR ]; then
         echo "Certificate directory was not found correctly.... Exiting"
         exit
