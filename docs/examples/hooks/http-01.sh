@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# SMTP Server Settings
+SMTP_SERVER="localhost"
+SMTP_PORT=25
+
 function deploy_challenge {
     local DOMAIN="${1}" TOKEN_FILENAME="${2}" TOKEN_VALUE="${3}" CONTACT_EMAIL="${4}"
 
@@ -91,10 +95,13 @@ function unchanged_cert {
 }
 
 function send_notification {
-    local SENDER="${1}" RECIPIENT="${1}" DOMAIN="${2}" TODAYS_DATE=`date`
+    local SENDER="${1}" RECIPIENT="${1}" DOMAIN="${2}" TODAYS_DATE=`date` HOST_NAME=`hostname`
 
     # send notification email
-    cat << EOF | /usr/sbin/sendmail -t -f $SENDER
+    cat << EOF | /usr/bin/nc ${SMTP_SERVER} ${SMTP_PORT}
+MAIL FROM:$SENDER
+RCPT TO:$RECIPIENT
+DATA
 Content-Type:text/html;charset='UTF-8'
 Content-Transfer-Encoding:7bit
 From:SSL Certificate Renewal Script<$SENDER>
@@ -104,8 +111,13 @@ Subject: New Certificate Deployed - $TODAYS_DATE
 <html>
 <p style="font-size: 1em; color: black;">A new certificate for the domain <b>${DOMAIN}</b> has been deployed.</p>
 <p style="font-size: 1em; color: black;">Please confirm certificate is working as expected.</p>
+<br>
+<p style="font-size: 1em; color: black;">This certificate was deployed from <b>${HOST_NAME}</b>.</p>
 </html>
+.
+quit
 EOF
+
 }
 
 HANDLER=$1; shift; $HANDLER $@
