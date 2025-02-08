@@ -5,9 +5,7 @@ SMTP_SERVER="localhost"
 SMTP_PORT=25
 
 # Cloudflare API Credentials
-ZONE_ID="your_zone_id"
-API_KEY="your_api_key"
-EMAIL="your_email"
+CF_API_KEY="your_api_key"
 
 function deploy_challenge {
     local DOMAIN="${1}" TOKEN_FILENAME="${2}" TOKEN_VALUE="${3}" CONTACT_EMAIL="${4}"
@@ -266,86 +264,41 @@ function process_challenge {
     local SLD=`sed -E 's/(.*\.)*([^.]+)\..*/\2/' <<< "${FIRSTDOMAIN}"`
     local TLD=`sed -E 's/.*\.([^.]+)/\1/' <<< "${FIRSTDOMAIN}"`
 
-    local API_ENDPOINT="https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records"
-    local POSTDATA=""
-
-    local num=1
-
-    # get list of current records for domain
-    local records_list=`/usr/bin/curl -s -X GET "$API_ENDPOINT" \
-        -H "X-Auth-Email: $EMAIL" \
-        -H "X-Auth-Key: $API_KEY" \
-        -H "Content-Type: application/json" | jq -r '.result[] | @base64'`
-
-    # remove challenge records from list
-    # This only really matters for $TYPE == "CLEAN"
-    if [ "$TYPE" == "CLEAN" ]; then
-        records_list=`echo "$records_list" | base64 --decode | jq -r 'select(.name | contains("acme-challenge") | not)' | jq -r @base64`
-    fi
-
-    # parse and store current records
-    OLDIFS=$IFS
-    for record in $records_list; do
-        current_record=`echo $record | base64 --decode`
-        record_id=`echo $current_record | jq -r '.id'`
-        record_name=`echo $current_record | jq -r '.name'`
-        record_type=`echo $current_record | jq -r '.type'`
-        record_content=`echo $current_record | jq -r '.content'`
-        record_ttl=`echo $current_record | jq -r '.ttl'`
-
-        POSTDATA=$POSTDATA" --data-urlencode 'id$num=$record_id'"
-        POSTDATA=$POSTDATA" --data-urlencode 'name$num=$record_name'"
-        POSTDATA=$POSTDATA" --data-urlencode 'type$num=$record_type'"
-        POSTDATA=$POSTDATA" --data-urlencode 'content$num=$record_content'"
-        POSTDATA=$POSTDATA" --data-urlencode 'ttl$num=$record_ttl'"
-
-        ((num++))
-    done
-    IFS=$OLDIFS
+    # Get zone ID for the domain
+    local ZONE_ID=`curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=${SLD}.${TLD}&status=active" \
+        -H "Authorization: ${CF_API_KEY}" \
+        -H "Content-Type: application/json" | jq -r '.result[0].id'`
 
     local items=0
-
     if [ "$TYPE" == "DEPLOY" ]; then
-
-        # add challenge records to post data
         local count=0
         while (( "$#" >= 4 )); do
+            # Extract challenge parameters
             DOMAIN="${1}"; shift
             TOKEN_FILENAME="${1}"; shift
-            TOKEN_VALUE[$count]="${1}"; shift
+            TOKEN_VALUE="${1}"; shift
             CONTACT_EMAIL="${1}"; shift
 
+            # Get subdomain part
             SUB[$count]=`sed -E "s/.$SLD.$TLD//" <<< "${DOMAIN}"`
 
-            POSTDATA=$POSTDATA" --data-urlencode 'name$num=_acme-challenge.${SUB[$count]}.$SLD.$TLD'"
-            POSTDATA=$POSTDATA" --data-urlencode 'type$num=TXT'"
-            POSTDATA=$POSTDATA" --data-urlencode 'content$num=${TOKEN_VALUE[$count]}'"
-            POSTDATA=$POSTDATA" --data-urlencode 'ttl$num=60'"
+            # Add TXT record
+            curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records" \
+                -H "Authorization: ${CF_API_KEY}" \
+                -H "Content-Type: application/json" \
+                --data '{"type":"TXT","name":"_acme-challenge.'${SUB[$count]}'","content":"'"${TOKEN_VALUE}"'","ttl":60,"proxied":false}'
 
-            ((num++))
             ((count++))
         done
 
         items=$count
 
-    fi
-
-    local command="/usr/bin/curl -sv -X POST $API_ENDPOINT \
-        -H 'X-Auth-Email: $EMAIL' \
-        -H 'X-Auth-Key: $API_KEY' \
-        -H 'Content-Type: application/json' \
-        --data '$POSTDATA' 2>&1 > /dev/null"
-    eval $command
-
-    if [ "$TYPE" == "DEPLOY" ]; then
-
-        # wait up to 30 minutes for DNS updates to be provisioned (check at 15 second intervals)
+        # Wait for DNS propagation
         timer=0
         count=0
         while [ $count -lt $items ]; do
             until dig @8.8.8.8 txt "_acme-challenge.${SUB[$count]}.$SLD.$TLD" | grep -- "${TOKEN_VALUE[$count]}" 2>&1 > /dev/null; do
                 if [[ "$timer" -ge 1800 ]]; then
-                    # time has exceeded 30 minutes
                     break
                 else
                     echo " + DNS not propagated. Waiting 15s for record creation and replication... Total time elapsed has been $timer seconds."
@@ -354,6 +307,19 @@ function process_challenge {
                 fi
             done
             ((count++))
+        done
+
+    elif [ "$TYPE" == "CLEAN" ]; then
+        # Get all TXT records and remove acme challenges
+        echo "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records?type=TXT"
+        local RECORDS=`curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records?type=TXT" \
+            -H "Authorization: ${CF_API_KEY}" \
+            -H "Content-Type: application/json"`
+        local CHALLENGE_IDS=`echo ${RECORDS} | jq -r '.result[] | select(.name | contains("acme-challenge")) | .id'`
+        for CHALLENGE_ID in ${CHALLENGE_IDS}; do
+            curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${CHALLENGE_ID}" \
+                -H "Authorization: ${CF_API_KEY}" \
+                -H "Content-Type: application/json"
         done
     fi
 }
